@@ -10,7 +10,8 @@ service cloud.firestore {
     }
 
     function isMember(coupleId) {
-      return signedIn() && coupleData(coupleId).members[request.auth.uid] != null;
+      return signedIn()
+        && coupleData(coupleId).members.keys().hasAny([request.auth.uid]);
     }
 
     function validEventWindow() {
@@ -31,7 +32,7 @@ service cloud.firestore {
       allow create: if signedIn()
         && request.resource.data.createdBy == request.auth.uid
         && request.resource.data.members.size() == 1
-        && request.resource.data.members[request.auth.uid] != null;
+        && request.resource.data.members.keys().hasAny([request.auth.uid]);
 
       // The only allowed couple-document update is the second member joining.
       // They may add exactly their own member key and touch updatedAt; the
@@ -39,8 +40,8 @@ service cloud.firestore {
       allow update: if signedIn()
         && resource.data.members.size() == 1
         && request.resource.data.members.size() == 2
-        && resource.data.members[request.auth.uid] == null
-        && request.resource.data.members[request.auth.uid] != null
+        && !resource.data.members.keys().hasAny([request.auth.uid])
+        && request.resource.data.members.keys().hasAny([request.auth.uid])
         && request.resource.data.members.diff(resource.data.members).affectedKeys().hasOnly([request.auth.uid])
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['members', 'updatedAt']);
 
