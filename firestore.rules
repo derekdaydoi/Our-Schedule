@@ -1,0 +1,68 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function coupleData(coupleId) {
+      return get(/databases/$(database)/documents/couples/$(coupleId)).data;
+    }
+
+    function isMember(coupleId) {
+      return signedIn() && coupleData(coupleId).members[request.auth.uid] != null;
+    }
+
+    match /users/{uid} {
+      allow read, create, update: if signedIn() && request.auth.uid == uid;
+      allow delete: if false;
+    }
+
+    match /couples/{coupleId} {
+      // Direct get is allowed so a signed-in partner can open a high-entropy invite code.
+      // Collection listing stays blocked, so invite codes cannot be enumerated.
+      allow get: if signedIn();
+      allow list: if false;
+
+      allow create: if signedIn()
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.members.size() == 1
+        && request.resource.data.members[request.auth.uid] != null;
+
+      // Existing members may keep the couple document fresh. A non-member may only
+      // join a one-person couple by adding themselves without changing other fields.
+      allow update: if signedIn() && (
+        isMember(coupleId)
+        || (
+          resource.data.members.size() == 1
+          && request.resource.data.members.size() == 2
+          && request.resource.data.members.keys().hasAll(resource.data.members.keys())
+          && request.resource.data.members[request.auth.uid] != null
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['members', 'updatedAt'])
+        )
+      );
+      allow delete: if false;
+
+      match /events/{eventId} {
+        allow read: if isMember(coupleId);
+
+        allow create: if isMember(coupleId)
+          && request.resource.data.createdBy == request.auth.uid
+          && (
+            request.resource.data.ownerType == 'both'
+            || (
+              request.resource.data.ownerType == 'personal'
+              && request.resource.data.ownerUid == request.auth.uid
+            )
+          );
+
+        // Personal events belong to their owner. Shared events can be edited by either member.
+        allow update, delete: if isMember(coupleId)
+          && (
+            resource.data.ownerType == 'both'
+            || resource.data.ownerUid == request.auth.uid
+          );
+      }
+    }
+  }
+}
