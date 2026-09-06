@@ -69,10 +69,10 @@ export default function EventModal({ open, initialDate, event, canDelete, onClos
         </div>
         <label>Loại<select value={category} onChange={e => setCategory(e.target.value)}>{categories.map(x => <option key={x}>{x}</option>)}</select></label>
         <div className="segmented">
-          <button type="button" className={ownerType === 'personal' ? 'active' : ''} onClick={() => setOwnerType('personal')}>Của tôi</button>
-          <button type="button" className={ownerType === 'both' ? 'active' : ''} onClick={() => setOwnerType('both')}>Của cả hai</button>
+          <button type="button" disabled={Boolean(event)} className={ownerType === 'personal' ? 'active' : ''} onClick={() => setOwnerType('personal')}>Của tôi</button>
+          <button type="button" disabled={Boolean(event)} className={ownerType === 'both' ? 'active' : ''} onClick={() => setOwnerType('both')}>Của cả hai</button>
         </div>
-        <p className="helper">Lịch “của cả hai” sẽ ở trạng thái đề xuất cho đến khi người kia xác nhận.</p>
+        <p className="helper">{event ? 'Quyền sở hữu được khóa sau khi tạo lịch.' : 'Lịch “của cả hai” sẽ ở trạng thái đề xuất cho đến khi người kia xác nhận.'}</p>
         <label>Ghi chú<textarea rows={3} value={notes} onChange={e => setNotes(e.target.value)} placeholder="Địa điểm, việc cần nhớ..." /></label>
 
         <div className="modal-actions">

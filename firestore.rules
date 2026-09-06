@@ -13,14 +13,18 @@ service cloud.firestore {
       return signedIn() && coupleData(coupleId).members[request.auth.uid] != null;
     }
 
+    function validEventWindow() {
+      return request.resource.data.startAt < request.resource.data.endAt;
+    }
+
     match /users/{uid} {
       allow read, create, update: if signedIn() && request.auth.uid == uid;
       allow delete: if false;
     }
 
     match /couples/{coupleId} {
-      // Direct get is allowed so a signed-in partner can open a high-entropy invite code.
-      // Collection listing stays blocked, so invite codes cannot be enumerated.
+      // A partner who already knows the high-entropy pairing code may read that
+      // one document. Listing the collection is always denied.
       allow get: if signedIn();
       allow list: if false;
 
@@ -29,18 +33,17 @@ service cloud.firestore {
         && request.resource.data.members.size() == 1
         && request.resource.data.members[request.auth.uid] != null;
 
-      // Existing members may keep the couple document fresh. A non-member may only
-      // join a one-person couple by adding themselves without changing other fields.
-      allow update: if signedIn() && (
-        isMember(coupleId)
-        || (
-          resource.data.members.size() == 1
-          && request.resource.data.members.size() == 2
-          && request.resource.data.members.keys().hasAll(resource.data.members.keys())
-          && request.resource.data.members[request.auth.uid] != null
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['members', 'updatedAt'])
-        )
-      );
+      // The only allowed couple-document update is the second member joining.
+      // They may add exactly their own member key and touch updatedAt; the
+      // existing member and every other field remain immutable.
+      allow update: if signedIn()
+        && resource.data.members.size() == 1
+        && request.resource.data.members.size() == 2
+        && resource.data.members[request.auth.uid] == null
+        && request.resource.data.members[request.auth.uid] != null
+        && request.resource.data.members.diff(resource.data.members).affectedKeys().hasOnly([request.auth.uid])
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['members', 'updatedAt']);
+
       allow delete: if false;
 
       match /events/{eventId} {
@@ -48,19 +51,48 @@ service cloud.firestore {
 
         allow create: if isMember(coupleId)
           && request.resource.data.createdBy == request.auth.uid
+          && validEventWindow()
           && (
-            request.resource.data.ownerType == 'both'
+            (
+              request.resource.data.ownerType == 'both'
+              && request.resource.data.ownerUid == null
+            )
             || (
               request.resource.data.ownerType == 'personal'
               && request.resource.data.ownerUid == request.auth.uid
             )
           );
 
-        // Personal events belong to their owner. Shared events can be edited by either member.
-        allow update, delete: if isMember(coupleId)
+        // Ownership cannot be transferred after creation. Personal events are
+        // editable only by their owner; shared events are editable by either member.
+        allow update: if isMember(coupleId)
+          && validEventWindow()
+          && request.resource.data.createdBy == resource.data.createdBy
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'title', 'notes', 'category', 'startAt', 'endAt',
+            'status', 'acceptedBy', 'acceptedAt', 'updatedAt'
+          ])
+          && (
+            (
+              resource.data.ownerType == 'personal'
+              && resource.data.ownerUid == request.auth.uid
+              && request.resource.data.ownerType == 'personal'
+              && request.resource.data.ownerUid == request.auth.uid
+            )
+            || (
+              resource.data.ownerType == 'both'
+              && request.resource.data.ownerType == 'both'
+              && request.resource.data.ownerUid == null
+            )
+          );
+
+        allow delete: if isMember(coupleId)
           && (
             resource.data.ownerType == 'both'
-            || resource.data.ownerUid == request.auth.uid
+            || (
+              resource.data.ownerType == 'personal'
+              && resource.data.ownerUid == request.auth.uid
+            )
           );
       }
     }
